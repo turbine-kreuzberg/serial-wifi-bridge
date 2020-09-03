@@ -19,8 +19,12 @@ filesystem:
   - fs
 
 config_schema:
+  - ["dns_sd.enable", true]
+  - ["dns_sd.host_name", "mos-serial-??????"]
   - ["sb", "o", {"Serial bridge settings"}]
-  - ["sb.id", "i", 0, {"ID of the bridge"}]
+  - ["sb.port", "i", 8888, {"TCP port of the bridge"}]
+  - ["sb.uart_no", "i", 1, {"UART number"}]
+  - ["board.led1.pin", 2] # devkit v1
 
 libs:
   - origin: https://github.com/mongoose-os-libs/wifi
@@ -29,3 +33,5 @@ libs:
   - origin: https://github.com/mongoose-os-libs/rpc-service-fs
   - origin: https://github.com/mongoose-os-libs/rpc-uart
   - origin: https://github.com/mongoose-os-libs/dash
+  - origin: https://github.com/mongoose-os-libs/dns-sd
+  - origin: https://github.com/mongoose-os-libs/boards

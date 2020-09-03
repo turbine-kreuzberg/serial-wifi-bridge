@@ -1,77 +1,20 @@
 #include "mgos.h"
 #include "mgos_mongoose.h"
 #include "mgos_wifi.h"
+#include "mgos_dns_sd.h"
 
 static void timer_cb(void *arg) {
-  static bool s_tick_tock = false;
+  mgos_gpio_toggle(mgos_sys_config_get_board_led1_pin());
   LOG(LL_INFO,
-      ("%s uptime: %.2lf, RAM: %lu, %lu free", (s_tick_tock ? "Tick" : "Tock"),
+      ("uptime: %.2lf, RAM: %lu, %lu free",
        mgos_uptime(), (unsigned long) mgos_get_heap_size(),
        (unsigned long) mgos_get_free_heap_size()));
-  s_tick_tock = !s_tick_tock;
-  (void) arg;
-}
-
-static void net_cb(int ev, void *evd, void *arg) {
-  switch (ev) {
-    case MGOS_NET_EV_DISCONNECTED:
-      LOG(LL_INFO, ("%s", "Net disconnected"));
-      break;
-    case MGOS_NET_EV_CONNECTING:
-      LOG(LL_INFO, ("%s", "Net connecting..."));
-      break;
-    case MGOS_NET_EV_CONNECTED:
-      LOG(LL_INFO, ("%s", "Net connected"));
-      break;
-    case MGOS_NET_EV_IP_ACQUIRED:
-      LOG(LL_INFO, ("%s", "Net got IP address"));
-      break;
-  }
-
-  (void) evd;
-  (void) arg;
-}
-
-static void wifi_cb(int ev, void *evd, void *arg) {
-  switch (ev) {
-    case MGOS_WIFI_EV_STA_DISCONNECTED: {
-      struct mgos_wifi_sta_disconnected_arg *da =
-          (struct mgos_wifi_sta_disconnected_arg *) evd;
-      LOG(LL_INFO, ("WiFi STA disconnected, reason %d", da->reason));
-      break;
-    }
-    case MGOS_WIFI_EV_STA_CONNECTING:
-      LOG(LL_INFO, ("WiFi STA connecting %p", arg));
-      break;
-    case MGOS_WIFI_EV_STA_CONNECTED:
-      LOG(LL_INFO, ("WiFi STA connected %p", arg));
-      break;
-    case MGOS_WIFI_EV_STA_IP_ACQUIRED:
-      LOG(LL_INFO, ("WiFi STA IP acquired %p", arg));
-      break;
-    case MGOS_WIFI_EV_AP_STA_CONNECTED: {
-      struct mgos_wifi_ap_sta_connected_arg *aa =
-          (struct mgos_wifi_ap_sta_connected_arg *) evd;
-      LOG(LL_INFO, ("WiFi AP STA connected MAC %02x:%02x:%02x:%02x:%02x:%02x",
-                    aa->mac[0], aa->mac[1], aa->mac[2], aa->mac[3], aa->mac[4],
-                    aa->mac[5]));
-      break;
-    }
-    case MGOS_WIFI_EV_AP_STA_DISCONNECTED: {
-      struct mgos_wifi_ap_sta_disconnected_arg *aa =
-          (struct mgos_wifi_ap_sta_disconnected_arg *) evd;
-      LOG(LL_INFO,
-          ("WiFi AP STA disconnected MAC %02x:%02x:%02x:%02x:%02x:%02x",
-           aa->mac[0], aa->mac[1], aa->mac[2], aa->mac[3], aa->mac[4],
-           aa->mac[5]));
-      break;
-    }
-  }
   (void) arg;
 }
 
 // Define an event handler function
 static void ev_handler(struct mg_connection *nc, int ev, void *ev_data, void *user_data) {
+  const int uart_no = mgos_sys_config_get_sb_uart_no();
   struct mbuf *io = &nc->recv_mbuf;
 
   switch (ev) {
@@ -79,7 +22,7 @@ static void ev_handler(struct mg_connection *nc, int ev, void *ev_data, void *us
       nc->flags |= MG_F_USER_1;// mark connection
       break;
     case MG_EV_RECV:
-      mgos_uart_write(1, io->buf, io->len);
+      mgos_uart_write(uart_no, io->buf, io->len);
       mbuf_remove(io, io->len);
       break;
     default:
@@ -91,7 +34,7 @@ static void ev_handler(struct mg_connection *nc, int ev, void *ev_data, void *us
 }
 
 static void uart_dispatcher(int uart_no, void *arg) {
-  assert(uart_no == 1);
+  assert(uart_no == mgos_sys_config_get_sb_uart_no());
 
   if (mgos_uart_read_avail(uart_no) == 0) return;
 
@@ -102,15 +45,14 @@ static void uart_dispatcher(int uart_no, void *arg) {
   for (c = mg_next(mgos_get_mgr(), NULL); c != NULL; c = mg_next(mgos_get_mgr(), c)) {
     if ((c->flags & MG_F_USER_1) == 0) continue; //skip unmarked connections
     
-    mg_send(c, buf, n); 
+    mg_send(c, buf, n);
   }
   
   (void) arg;
 }
 
 enum mgos_app_init_result mgos_app_init(void) {
-  int uart_no = 1;
-
+  const int uart_no = mgos_sys_config_get_sb_uart_no();
   struct mgos_uart_config ucfg;
   mgos_uart_config_set_defaults(uart_no, &ucfg);
 
@@ -120,18 +62,15 @@ enum mgos_app_init_result mgos_app_init(void) {
     LOG(LL_ERROR, ("Failed to configure UART%d", uart_no));
   }
 
-  /* Simple repeating timer */
+  mgos_gpio_set_mode(mgos_sys_config_get_board_led1_pin(), MGOS_GPIO_MODE_OUTPUT);
   mgos_set_timer(1000, MGOS_TIMER_REPEAT, timer_cb, NULL);
 
-  /* Network connectivity events */
-  mgos_event_add_group_handler(MGOS_EVENT_GRP_NET, net_cb, NULL);
+  char address[32];
+  snprintf(address, sizeof(address), ":%d", mgos_sys_config_get_sb_port());
+  mg_bind(mgos_get_mgr(), address, ev_handler, 0);
 
-  mgos_event_add_group_handler(MGOS_WIFI_EV_BASE, wifi_cb, NULL);
-
-  mg_bind(mgos_get_mgr(), ":1234", ev_handler, 0);
-
-  mgos_uart_set_dispatcher(1, uart_dispatcher, 0);
-  mgos_uart_set_rx_enabled(1, true);
+  mgos_uart_set_dispatcher(uart_no, uart_dispatcher, 0);
+  mgos_uart_set_rx_enabled(uart_no, true);
 
   return MGOS_APP_INIT_SUCCESS;
 }
