@@ -24,6 +24,7 @@ config_schema:
   - ["sb", "o", {"Serial bridge settings"}]
   - ["sb.port", "i", 8888, {"TCP port of the bridge"}]
   - ["sb.uart_no", "i", 1, {"UART number"}]
+  - ["sb.baud_rate", "i", 9600, {"UART baud rate"}]
   - ["board.led1.pin", 2] # devkit v1
 
 libs:

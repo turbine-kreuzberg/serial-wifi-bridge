@@ -12,7 +12,6 @@ static void timer_cb(void *arg) {
   (void) arg;
 }
 
-// Define an event handler function
 static void ev_handler(struct mg_connection *nc, int ev, void *ev_data, void *user_data) {
   const int uart_no = mgos_sys_config_get_sb_uart_no();
   struct mbuf *io = &nc->recv_mbuf;
@@ -56,14 +55,11 @@ enum mgos_app_init_result mgos_app_init(void) {
   struct mgos_uart_config ucfg;
   mgos_uart_config_set_defaults(uart_no, &ucfg);
 
-  ucfg.baud_rate = 9600;
+  ucfg.baud_rate = mgos_sys_config_get_sb_baud_rate();
 
   if (!mgos_uart_configure(uart_no, &ucfg)) {
     LOG(LL_ERROR, ("Failed to configure UART%d", uart_no));
   }
-
-  mgos_gpio_set_mode(mgos_sys_config_get_board_led1_pin(), MGOS_GPIO_MODE_OUTPUT);
-  mgos_set_timer(1000, MGOS_TIMER_REPEAT, timer_cb, NULL);
 
   char address[32];
   snprintf(address, sizeof(address), ":%d", mgos_sys_config_get_sb_port());
@@ -71,6 +67,9 @@ enum mgos_app_init_result mgos_app_init(void) {
 
   mgos_uart_set_dispatcher(uart_no, uart_dispatcher, 0);
   mgos_uart_set_rx_enabled(uart_no, true);
+
+  mgos_gpio_set_mode(mgos_sys_config_get_board_led1_pin(), MGOS_GPIO_MODE_OUTPUT);
+  mgos_set_timer(1000, MGOS_TIMER_REPEAT, timer_cb, NULL);
 
   return MGOS_APP_INIT_SUCCESS;
 }
